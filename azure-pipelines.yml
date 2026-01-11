@@ -1,0 +1,27 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.11'
+    addToPath: true
+
+- script: |
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
+    pip install pytest pytest-cov
+  displayName: 'Install dependencies'
+
+- script: |
+    pytest --cov=./ --cov-report=xml:coverage.xml
+  displayName: 'Run tests and collect coverage'
+
+- task: PublishCodeCoverage@1
+  inputs:
+    codeCoverageTool: 'Cobertura'
+    summaryFileLocation: 'coverage.xml'
+  displayName: 'Publish code coverage'
