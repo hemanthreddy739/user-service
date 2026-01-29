@@ -1,0 +1,95 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=./ --cov-report=xml --cov-report=html
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+        flags: unittests
+        fail_ci_if_error: false
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      # -------------- CONTAINERISATION ------------------------------
+
+      # ------------------ DOCKER LOGIN (Docker Hub) ------------------
+      - name: docker log in
+        uses: docker/login-action@v3   
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # ------------------ DOCKER LOGIN (GHCR) ------------------
+      - name: Docker login (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------ DOCKER LOGIN (AZURE) ------------------   
+      - name: Docker login (Azure)
+        uses: docker/login-action@v3
+        with:
+          registry: hemanthreddy739.azurecr.io
+          username: ${{ vars.AZURE_CLIENT_ID }}
+          password: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      # ------------------ IMAGE TAG METADATA ------------------
+
+      - name: Get short commit SHA
+        id: tag-vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT   
+
+      # ------------------ BUILD & PUSH IMAGE (MULTI-REGISTRY) ------------------    
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          file: ./Dockerfile
+          tags: |
+            ${{ vars.DOCKER_USERNAME }}/user-service:latest
+            ${{ vars.DOCKER_USERNAME }}/user-service:sha-${{ steps.tag-vars.outputs.short_sha }}
+
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:sha-${{ steps.tag-vars.outputs.short_sha }}
+
+            ${{ vars.AZURE_ACR_NAME }}.azurecr.io/user-service:latest
+            ${{ vars.AZURE_ACR_NAME }}.azurecr.io/user-service:sha-${{ steps.tag-vars.outputs.short_sha }}
+          
+
